@@ -8,7 +8,7 @@ local config = {
     -- Global hotkey to trigger emacs-input (default: Cmd+Shift+E)
     hotkey = {"cmd", "shift", "e"},
     -- Emacsclient command
-    emacsclient = "/usr/local/bin/emacsclient"
+    emacsclient = "/run/current-system/sw/bin/emacsclient"
 }
 
 -- Get information about the currently focused application
