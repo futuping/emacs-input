@@ -166,8 +166,8 @@ This may open FILE if specified, otherwise creates a temporary file."
          (temp-file (emacs-input--create-temp-file app-info)))
     (find-file temp-file)
     (setq-local emacs-input-current-app app-info)
-    (emacs-input-mode 1)
     (text-mode)
+    (emacs-input-mode 1)  ; Enable emacs-input-mode AFTER text-mode
     (setq emacs-input--original-content "")
     (emacs-input--get-selection-async)
     (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
@@ -226,8 +226,8 @@ This may open FILE if specified, otherwise creates a temporary file."
     (when (and file (emacs-input--temp-file-p file))
       (let ((app-info (frame-parameter nil 'emacs-input-app)))
         (setq-local emacs-input-current-app app-info)
-        (emacs-input-mode 1)
         (text-mode)
+        (emacs-input-mode 1)  ; Enable emacs-input-mode AFTER text-mode
         (setq emacs-input--original-content "")
         ;; Try to get selected text
         (emacs-input--get-selection-async)
