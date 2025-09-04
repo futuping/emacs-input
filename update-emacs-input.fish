@@ -92,10 +92,30 @@ if test -d "$HAMMERSPOON_DIR"
     print_success "Hammerspoon 脚本已更新"
     
     # Reload Hammerspoon configuration / 重新加载 Hammerspoon 配置
+    set HS_CMD ""
+
+    # Try to find hs command in various locations
     if command -v hs > /dev/null
-        hs -c "hs.reload()"
-        print_success "Hammerspoon configuration reloaded"
-        print_success "Hammerspoon 配置已重新加载"
+        set HS_CMD "hs"
+    else if test -f "/Applications/Nix Apps/Hammerspoon.app/Contents/Frameworks/hs/hs"
+        set HS_CMD "/Applications/Nix Apps/Hammerspoon.app/Contents/Frameworks/hs/hs"
+    else if test -f "/nix/store/2l8mcmysihrdbs85hv53ymhl1mh03kqs-hammerspoon-1.0.0/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"
+        set HS_CMD "/nix/store/2l8mcmysihrdbs85hv53ymhl1mh03kqs-hammerspoon-1.0.0/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"
+    else if test -f "/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"
+        set HS_CMD "/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"
+    end
+
+    if test -n "$HS_CMD"
+        # Try to reload Hammerspoon configuration
+        if "$HS_CMD" -c "hs.reload()" 2>/dev/null
+            print_success "Hammerspoon configuration reloaded"
+            print_success "Hammerspoon 配置已重新加载"
+        else
+            print_warning "Hammerspoon CLI found but reload failed. Please reload manually."
+            print_warning "找到 Hammerspoon CLI 但重新加载失败。请手动重新加载。"
+            print_info "To reload manually: Click Hammerspoon menu → Reload Config"
+            print_info "手动重新加载：点击 Hammerspoon 菜单 → Reload Config"
+        end
     else
         print_warning "Hammerspoon CLI not found. Please reload manually."
         print_warning "未找到 Hammerspoon CLI。请手动重新加载。"

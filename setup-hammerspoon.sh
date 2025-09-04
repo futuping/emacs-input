@@ -35,6 +35,10 @@ if [ ! -f "$INIT_LUA" ]; then
     echo "📝 创建新的 init.lua..."
     cat > "$INIT_LUA" << 'EOF'
 -- Hammerspoon 配置文件
+
+-- 启用 IPC 模块以支持命令行重新加载
+hs.ipc.cliInstall()
+
 -- 加载 emacs-input
 local emacs_input = require('emacs-input')
 emacs_input.setup()
@@ -45,6 +49,16 @@ else
     # 检查是否已经配置了 emacs-input
     if ! grep -q "emacs-input" "$INIT_LUA"; then
         echo "📝 添加 emacs-input 到现有 init.lua..."
+
+        # 检查是否已有 IPC 配置
+        if ! grep -q "hs.ipc.cliInstall" "$INIT_LUA"; then
+            cat >> "$INIT_LUA" << 'EOF'
+
+-- 启用 IPC 模块以支持命令行重新加载
+hs.ipc.cliInstall()
+EOF
+        fi
+
         cat >> "$INIT_LUA" << 'EOF'
 
 -- emacs-input 配置
@@ -53,6 +67,16 @@ emacs_input.setup()
 EOF
     else
         echo "✅ emacs-input 已在 init.lua 中配置"
+
+        # 确保 IPC 模块已启用
+        if ! grep -q "hs.ipc.cliInstall" "$INIT_LUA"; then
+            echo "📝 添加 IPC 模块支持..."
+            # 在文件开头添加 IPC 配置
+            sed -i.bak '1i\
+-- 启用 IPC 模块以支持命令行重新加载\
+hs.ipc.cliInstall()\
+' "$INIT_LUA"
+        fi
     fi
 fi
 
