@@ -94,13 +94,13 @@ end
 
 -- Trigger emacs-input
 function emacs_input.trigger()
-    -- Call emacsclient to trigger emacs-input
+    -- Call emacsclient to trigger emacs-input with GUI client
     local task = hs.task.new(config.emacsclient, function(exitCode, stdOut, stdErr)
         if exitCode ~= 0 then
             hs.alert.show("Failed to launch emacs-input: " .. (stdErr or "unknown error"))
         end
-    end, {"-e", "(emacs-input)"})
-    
+    end, {"-c", "-e", "(emacs-input)"})
+
     task:start()
 end
 

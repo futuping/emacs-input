@@ -26,7 +26,6 @@
   '((name . "emacs-input")
     (width . 80)
     (height . 20)
-    (minibuffer . nil)
     (menu-bar-lines . 0)
     (tool-bar-lines . 0)
     (left-fringe . 8)
@@ -45,64 +44,36 @@
 
 ;;; Internal variables
 
-(defvar emacs-input--frame nil
-  "The pre-created emacs-input frame.")
-
-(defvar emacs-input--buffer nil
-  "The emacs-input buffer.")
-
-(defvar emacs-input--app-info nil
+(defvar-local emacs-input-current-app nil
   "Current application information.")
 
-(defvar emacs-input--original-content ""
+(defvar-local emacs-input--original-content ""
   "Original content before editing.")
+
+(defvar emacs-input--hs-command nil
+  "Path to the hs command.")
 
 ;;; Core functionality
 
-(defun emacs-input--create-frame ()
-  "Create and hide the emacs-input frame."
-  (when (and emacs-input--frame (frame-live-p emacs-input--frame))
-    (delete-frame emacs-input--frame))
-  (setq emacs-input--frame
-        (make-frame (append emacs-input-frame-parameters
-                           '((visibility . nil)))))
-  (with-selected-frame emacs-input--frame
-    (setq emacs-input--buffer (get-buffer-create "*emacs-input*"))
-    (switch-to-buffer emacs-input--buffer)
-    (text-mode)
-    (emacs-input-mode 1)))
-
-(defun emacs-input--show-frame ()
-  "Show and focus the emacs-input frame."
-  (unless (and emacs-input--frame (frame-live-p emacs-input--frame))
-    (emacs-input--create-frame))
-  (make-frame-visible emacs-input--frame)
-  (select-frame-set-input-focus emacs-input--frame)
-  (with-selected-frame emacs-input--frame
-    (switch-to-buffer emacs-input--buffer)
-    (erase-buffer)
-    (setq emacs-input--original-content "")
-    ;; Position frame near cursor
-    (emacs-input--position-frame)))
-
-(defun emacs-input--hide-frame ()
-  "Hide the emacs-input frame."
-  (when (and emacs-input--frame (frame-live-p emacs-input--frame))
-    (make-frame-invisible emacs-input--frame)))
-
-(defun emacs-input--position-frame ()
-  "Position frame near mouse cursor."
-  (when (and emacs-input--frame (frame-live-p emacs-input--frame))
-    (let* ((mouse-pos (mouse-absolute-pixel-position))
-           (x (max 0 (- (car mouse-pos) 200)))
-           (y (max 0 (- (cdr mouse-pos) 100))))
-      (set-frame-position emacs-input--frame x y))))
+(defun emacs-input--find-hs-command ()
+  "Find the hs command path."
+  (unless emacs-input--hs-command
+    (setq emacs-input--hs-command
+          (or (executable-find "hs")
+              ;; Try nix-darwin path
+              (let ((nix-hs "/nix/store/2l8mcmysihrdbs85hv53ymhl1mh03kqs-hammerspoon-1.0.0/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"))
+                (when (file-executable-p nix-hs) nix-hs))
+              ;; Try standard macOS path
+              (let ((mac-hs "/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"))
+                (when (file-executable-p mac-hs) mac-hs)))))
+  emacs-input--hs-command)
 
 (defun emacs-input--get-app-info-async ()
   "Asynchronously get application information via Hammerspoon."
-  (when (file-exists-p emacs-input-hammerspoon-script)
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
     (let ((process (start-process "emacs-input-app-info" nil
-                                 "hs" "-c" "require('emacs-input').getAppInfo()")))
+                                 (emacs-input--find-hs-command) "-c" "require('emacs-input').getAppInfo()")))
       (set-process-sentinel process #'emacs-input--app-info-sentinel))))
 
 (defun emacs-input--app-info-sentinel (process event)
@@ -117,9 +88,10 @@
 
 (defun emacs-input--get-selection-async ()
   "Asynchronously get selected text via Hammerspoon."
-  (when (file-exists-p emacs-input-hammerspoon-script)
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
     (let ((process (start-process "emacs-input-selection" nil
-                                 "hs" "-c" "require('emacs-input').getSelection()")))
+                                 (emacs-input--find-hs-command) "-c" "require('emacs-input').getSelection()")))
       (set-process-sentinel process #'emacs-input--selection-sentinel))))
 
 (defun emacs-input--selection-sentinel (process event)
@@ -135,33 +107,94 @@
               (insert selection)
               (setq emacs-input--original-content selection))))))))
 
+;;; Helper functions
+
+(defun emacs-input--get-app-info ()
+  "Get current application info synchronously."
+  (when (emacs-input--find-hs-command)
+    (let ((output (shell-command-to-string
+                   (format "%s -c \"require('emacs-input').getAppInfo()\" 2>/dev/null"
+                           (emacs-input--find-hs-command)))))
+      (when (and (> (length (string-trim output)) 0)
+                 (not (string-match-p "error:" output)))
+        (condition-case nil
+            (read output)
+          (error nil))))))
+
+(defun emacs-input--create-temp-file (app-info)
+  "Create a temporary file for editing."
+  (let* ((temp-name (format "emacs-input-%s-%s"
+                           (format-time-string "%Y%m%d-%H%M%S")
+                           (or (and app-info (plist-get app-info :name)) "unknown")))
+         (temp-file (expand-file-name temp-name temporary-file-directory)))
+    temp-file))
+
+(defun emacs-input--command-params (app-info temp-file)
+  "Generate emacsclient command parameters."
+  (delq nil
+        (list
+         (when (and (server-running-p) server-use-tcp)
+           (concat "--server-file="
+                   (shell-quote-argument
+                    (expand-file-name server-name server-auth-dir))))
+         (when (and (server-running-p) (not server-use-tcp))
+           (concat "--socket-name="
+                   (shell-quote-argument
+                    (expand-file-name server-name server-socket-dir))))
+         "-c" "-F"
+         (prin1-to-string
+          (cons (cons 'emacs-input-app app-info)
+                emacs-input-frame-parameters))
+         temp-file)))
+
 ;;; Public API
 
 ;;;###autoload
-(defun emacs-input ()
-  "Show emacs-input frame for quick editing."
+(defun emacs-input (&optional file)
+  "Launch emacs-input frame from emacsclient.
+This may open FILE if specified, otherwise creates a temporary file."
+  (let* ((app-info (emacs-input--get-app-info))
+         (temp-file (or file (emacs-input--create-temp-file app-info)))
+         (params (emacs-input--command-params app-info temp-file)))
+    (apply #'call-process "emacsclient" nil 0 nil params)))
+
+;;;###autoload
+(defun emacs-input-quick ()
+  "Quick emacs-input without creating new process (for internal use)."
   (interactive)
-  (emacs-input--show-frame)
-  (emacs-input--get-app-info-async))
+  (let* ((app-info (emacs-input--get-app-info))
+         (temp-file (emacs-input--create-temp-file app-info)))
+    (find-file temp-file)
+    (setq-local emacs-input-current-app app-info)
+    (emacs-input-mode 1)
+    (text-mode)
+    (setq emacs-input--original-content "")
+    (emacs-input--get-selection-async)
+    (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
 
 (defun emacs-input-finish ()
   "Finish editing and paste content back."
   (interactive)
-  (let ((content (buffer-string)))
-    (unless (string= content emacs-input--original-content)
-      ;; Copy to clipboard
-      (kill-new content)
-      (gui-select-text content)
-      ;; Paste via Hammerspoon
-      (when (file-exists-p emacs-input-hammerspoon-script)
-        (call-process "hs" nil nil nil "-c" 
-                     (format "require('emacs-input').pasteContent(%S)" content))))
-    (emacs-input--hide-frame)))
+  (when emacs-input-mode
+    (let ((content (buffer-string)))
+      (unless (string= content emacs-input--original-content)
+        ;; Copy to clipboard
+        (kill-new content)
+        (gui-select-text content)
+        ;; Paste via Hammerspoon
+        (when (and (file-exists-p emacs-input-hammerspoon-script)
+                   (emacs-input--find-hs-command))
+          (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                       (format "require('emacs-input').pasteContent(%S)" content))))
+      ;; Close the client
+      (server-buffer-done (current-buffer)))))
 
 (defun emacs-input-abort ()
   "Abort editing without pasting."
   (interactive)
-  (emacs-input--hide-frame))
+  (when emacs-input-mode
+    (set-buffer-modified-p nil)
+    (server-buffer-done (current-buffer))))
 
 ;;; Minor mode
 
@@ -187,14 +220,33 @@
 ;;; Initialization
 
 ;;;###autoload
-(defun emacs-input-initialize ()
-  "Initialize emacs-input by creating the frame."
-  (interactive)
-  (emacs-input--create-frame)
-  (message "emacs-input initialized"))
+(defun emacs-input-initialise ()
+  "Entry point for emacs-input when visiting a file."
+  (let ((file (buffer-file-name (buffer-base-buffer))))
+    (when (and file (emacs-input--temp-file-p file))
+      (let ((app-info (frame-parameter nil 'emacs-input-app)))
+        (setq-local emacs-input-current-app app-info)
+        (emacs-input-mode 1)
+        (text-mode)
+        (setq emacs-input--original-content "")
+        ;; Try to get selected text
+        (emacs-input--get-selection-async)
+        (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))))
 
-;; Auto-initialize when server starts
-(add-hook 'server-switch-hook #'emacs-input-initialize)
+(defun emacs-input--temp-file-p (file)
+  "Check if FILE is an emacs-input temporary file."
+  (string-match-p "emacs-input-[0-9]\\{8\\}-[0-9]\\{6\\}" (file-name-nondirectory file)))
+
+;;;###autoload
+(add-hook 'server-visit-hook #'emacs-input-initialise)
+(add-hook 'server-done-hook #'emacs-input--cleanup)
+
+(defun emacs-input--cleanup ()
+  "Clean up emacs-input temporary files."
+  (let ((file (buffer-file-name (buffer-base-buffer))))
+    (when (and file (emacs-input--temp-file-p file))
+      (when (file-exists-p file)
+        (delete-file file)))))
 
 (provide 'emacs-input)
 ;;; emacs-input.el ends here
