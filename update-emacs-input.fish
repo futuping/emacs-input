@@ -30,49 +30,81 @@ function print_error
 end
 
 # ====================================================================
-# Step 1: Update emacs-input repository
-# 步骤 1: 更新 emacs-input 仓库
+# Step 1: Update emacs-input repository via straight.el
+# 步骤 1: 通过 straight.el 更新 emacs-input 仓库
 # ====================================================================
 
-print_info "Updating emacs-input repository..."
-print_info "更新 emacs-input 仓库..."
+print_info "Updating emacs-input via straight.el..."
+print_info "通过 straight.el 更新 emacs-input..."
 
-# Check if we're in the emacs-input directory
-if not test -f "emacs-input.el"
-    print_error "Not in emacs-input directory. Please run from the project root."
-    print_error "不在 emacs-input 目录中。请从项目根目录运行。"
+# Check if emacsclient can connect / 检查 emacsclient 是否能连接
+if not emacsclient --eval '(emacs-version)' > /dev/null 2>&1
+    print_error "Cannot connect to Emacs daemon. Please start Emacs server first."
+    print_error "无法连接到 Emacs daemon。请先启动 Emacs 服务。"
+    print_info "Start Emacs server with: M-x server-start or (server-start)"
+    print_info "启动 Emacs 服务：M-x server-start 或 (server-start)"
     exit 1
 end
 
-# Fetch latest changes / 获取最新更改
-print_info "Fetching from origin..."
-git fetch origin
-
-# Check current status / 检查当前状态
-set CURRENT_BRANCH (git branch --show-current)
-print_info "Current branch: $CURRENT_BRANCH"
-
-# Check if there are diverged commits / 检查是否有分歧的提交
-set LOCAL_COMMIT (git rev-parse HEAD)
-set REMOTE_COMMIT (git rev-parse origin/$CURRENT_BRANCH)
-
-if test "$LOCAL_COMMIT" != "$REMOTE_COMMIT"
-    print_warning "Local and remote have diverged. Pulling latest changes..."
-    print_warning "本地和远程有分歧。拉取最新更改..."
-    
-    # Pull latest changes / 拉取最新更改
-    git pull origin $CURRENT_BRANCH
-    print_success "Repository updated to latest version"
-    print_success "仓库已更新到最新版本"
-else
-    print_info "Repository is already up to date"
-    print_info "仓库已是最新"
+# Check if straight.el is available / 检查 straight.el 是否可用
+set STRAIGHT_AVAILABLE (emacsclient --eval '(if (fboundp '\''straight-pull-package) "yes" "no")' 2>/dev/null | tr -d '"')
+if test "$STRAIGHT_AVAILABLE" != "yes"
+    print_error "straight.el is not available or not loaded"
+    print_error "straight.el 不可用或未加载"
+    print_info "Please ensure straight.el is properly configured in your Emacs"
+    print_info "请确保在您的 Emacs 中正确配置了 straight.el"
+    exit 1
 end
 
-# Show current commit / 显示当前提交
+print_success "straight.el is available"
+print_success "straight.el 可用"
+
+# Update emacs-input package via straight.el / 通过 straight.el 更新 emacs-input 包
+print_info "Pulling latest changes for emacs-input package..."
+print_info "拉取 emacs-input 包的最新更改..."
+
+set UPDATE_RESULT (emacsclient --eval '(condition-case err (progn (straight-pull-package "emacs-input") "success") (error (format "error: %s" err)))' 2>/dev/null | tr -d '"')
+
+if test "$UPDATE_RESULT" = "success"
+    print_success "emacs-input package updated successfully"
+    print_success "emacs-input 包更新成功"
+else if string match -q "error:*" "$UPDATE_RESULT"
+    print_error "Failed to update emacs-input package: $UPDATE_RESULT"
+    print_error "更新 emacs-input 包失败：$UPDATE_RESULT"
+    exit 1
+else
+    print_warning "Update completed with result: $UPDATE_RESULT"
+    print_warning "更新完成，结果：$UPDATE_RESULT"
+end
+
+# Rebuild the package if needed / 如果需要则重新构建包
+print_info "Rebuilding emacs-input package..."
+print_info "重新构建 emacs-input 包..."
+
+set REBUILD_RESULT (emacsclient --eval '(condition-case err (progn (straight-rebuild-package "emacs-input") "success") (error (format "error: %s" err)))' 2>/dev/null | tr -d '"')
+
+if test "$REBUILD_RESULT" = "success"
+    print_success "emacs-input package rebuilt successfully"
+    print_success "emacs-input 包重新构建成功"
+else if string match -q "error:*" "$REBUILD_RESULT"
+    print_warning "Failed to rebuild emacs-input package: $REBUILD_RESULT"
+    print_warning "重新构建 emacs-input 包失败：$REBUILD_RESULT"
+    print_info "This may not be critical if the package is working correctly"
+    print_info "如果包工作正常，这可能不是关键问题"
+else
+    print_info "Rebuild completed with result: $REBUILD_RESULT"
+    print_info "重新构建完成，结果：$REBUILD_RESULT"
+end
+
+# Show package information / 显示包信息
 echo ""
-print_info "Current commit:"
-git log --oneline -1
+print_info "Package information:"
+print_info "包信息："
+set PACKAGE_INFO (emacsclient --eval '(straight--get-repo-dir "emacs-input")' 2>/dev/null | tr -d '"')
+if test -n "$PACKAGE_INFO"
+    print_info "Package location: $PACKAGE_INFO"
+    print_info "包位置：$PACKAGE_INFO"
+end
 
 # ====================================================================
 # Step 2: Update Hammerspoon configuration
@@ -145,7 +177,7 @@ if test -z "$OLD_PID"; or test "$OLD_PID" = "-"
     print_warning "Emacs 服务未运行或未找到"
 else
     print_info "Current Emacs daemon PID: $OLD_PID"
-    
+
     # Unload service / 卸载服务
     print_info "Unloading Emacs service..."
     launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_FILE"
@@ -155,10 +187,10 @@ else
     print_info "Loading Emacs service..."
     launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_FILE"
     sleep 3
-    
+
     # Verify new PID / 验证新 PID
     set NEW_PID (launchctl list | grep "$SERVICE_NAME" | awk '{print $1}')
-    
+
     if test -n "$NEW_PID"; and test "$NEW_PID" != "-"; and test "$NEW_PID" != "$OLD_PID"
         print_success "Emacs service restarted (PID: $OLD_PID → $NEW_PID)"
         print_success "Emacs 服务已重启 (PID: $OLD_PID → $NEW_PID)"

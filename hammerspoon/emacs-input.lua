@@ -5,8 +5,9 @@ local emacs_input = {}
 
 -- Configuration
 local config = {
-    -- Global hotkey to trigger emacs-input (default: Cmd+Shift+E)
-    hotkey = {"cmd", "shift", "e"},
+    -- Global hotkey to trigger emacs-input (default: Cmd+E)
+    hotkey_mods = {"cmd"},
+    hotkey_key = "e",
     -- Emacsclient command
     emacsclient = "/run/current-system/sw/bin/emacsclient"
 }
@@ -99,7 +100,7 @@ function emacs_input.trigger()
         if exitCode ~= 0 then
             hs.alert.show("Failed to launch emacs-input: " .. (stdErr or "unknown error"))
         end
-    end, {"-c", "-e", "(emacs-input)"})
+    end, {"-e", "(emacs-input)"})
 
     task:start()
 end
@@ -107,9 +108,9 @@ end
 -- Setup global hotkey
 function emacs_input.setup()
     -- Bind global hotkey
-    hs.hotkey.bind(config.hotkey[1], config.hotkey[2], emacs_input.trigger)
-    
-    hs.alert.show("emacs-input loaded (⌘⇧E)")
+    hs.hotkey.bind(config.hotkey_mods, config.hotkey_key, emacs_input.trigger)
+
+    hs.alert.show("emacs-input loaded (⌘E)")
 end
 
 -- Cleanup

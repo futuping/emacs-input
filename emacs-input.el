@@ -28,8 +28,8 @@
     (height . 20)
     (menu-bar-lines . 0)
     (tool-bar-lines . 0)
-    (left-fringe . 8)
-    (right-fringe . 8)
+    (left-fringe . 0)
+    (right-fringe . 0)
     (vertical-scroll-bars . nil)
     (horizontal-scroll-bars . nil))
   "Frame parameters for emacs-input frame."
