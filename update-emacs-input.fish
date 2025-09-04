@@ -116,6 +116,8 @@ print_info "重启 Emacs 服务..."
 
 # Check if service exists / 检查服务是否存在
 set SERVICE_NAME "org.nixos.emacs"
+set PLIST_FILE "org.nixos.emacs.plist"
+set LAUNCH_AGENTS_DIR "$HOME/Library/LaunchAgents"
 set OLD_PID (launchctl list | grep "$SERVICE_NAME" | awk '{print $1}')
 
 if test -z "$OLD_PID"; or test "$OLD_PID" = "-"
@@ -124,13 +126,15 @@ if test -z "$OLD_PID"; or test "$OLD_PID" = "-"
 else
     print_info "Current Emacs daemon PID: $OLD_PID"
     
-    # Stop service / 停止服务
-    launchctl stop "$SERVICE_NAME"
-    sleep 1
-    
-    # Start service / 启动服务
-    launchctl start "$SERVICE_NAME"
+    # Unload service / 卸载服务
+    print_info "Unloading Emacs service..."
+    launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_FILE"
     sleep 2
+
+    # Load service / 加载服务
+    print_info "Loading Emacs service..."
+    launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_FILE"
+    sleep 3
     
     # Verify new PID / 验证新 PID
     set NEW_PID (launchctl list | grep "$SERVICE_NAME" | awk '{print $1}')
