@@ -223,10 +223,7 @@ This may open FILE if specified, otherwise creates a temporary file."
   :lighter " EI"
   :keymap emacs-input-mode-map
   (when emacs-input-mode
-    (visual-line-mode 1)
-    (setq-local header-line-format
-                (propertize " Press C-c C-c to finish, C-c C-k to abort"
-                           'face 'mode-line-inactive))))
+    (visual-line-mode 1)))
 
 ;;; Initialization
 
