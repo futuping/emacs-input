@@ -1,4 +1,4 @@
-;;; emacs-input.el --- Minimal system-wide popup Emacs for quick edits -*- lexical-binding: t; -*-
+;;; emacs-input-fixed.el --- Minimal system-wide popup Emacs for quick edits -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2024
 
@@ -53,6 +53,9 @@
 (defvar emacs-input--hs-command nil
   "Path to the hs command.")
 
+(defvar emacs-input--app-info nil
+  "Current application information.")
+
 ;;; Core functionality
 
 (defun emacs-input--find-hs-command ()
@@ -78,13 +81,18 @@
 
 (defun emacs-input--app-info-sentinel (process event)
   "Handle app info process completion."
-  (when (string-match "finished" event)
-    (with-current-buffer (process-buffer process)
-      (let ((info (string-trim (buffer-string))))
-        (when (> (length info) 0)
-          (setq emacs-input--app-info (read info))
-          ;; Try to get selected text if available
-          (emacs-input--get-selection-async))))))
+  (when (and event (string-match "finished" event))
+    (when (buffer-live-p (process-buffer process))
+      (with-current-buffer (process-buffer process)
+        (let ((info (string-trim (buffer-string))))
+          (when (> (length info) 0)
+            (condition-case err
+                (progn
+                  (setq emacs-input--app-info (read info))
+                  ;; Try to get selected text if available
+                  (emacs-input--get-selection-async))
+              (error
+               (message "Error processing app info: %s" err)))))))))
 
 (defun emacs-input--get-selection-async ()
   "Asynchronously get selected text via Hammerspoon."
@@ -96,16 +104,19 @@
 
 (defun emacs-input--selection-sentinel (process event)
   "Handle selection process completion."
-  (when (string-match "finished" event)
-    (with-current-buffer (process-buffer process)
-      (let ((selection (string-trim (buffer-string))))
-        (when (and (> (length selection) 0)
-                   emacs-input--frame
-                   (frame-live-p emacs-input--frame))
-          (with-selected-frame emacs-input--frame
-            (when (string= (buffer-string) "")
-              (insert selection)
-              (setq emacs-input--original-content selection))))))))
+  (when (and event (string-match "finished" event))
+    (when (buffer-live-p (process-buffer process))
+      (with-current-buffer (process-buffer process)
+        (let ((selection (string-trim (buffer-string))))
+          (when (> (length selection) 0)
+            (condition-case err
+                (progn
+                  ;; Insert selection into current buffer if it's empty
+                  (when (string= (buffer-string) "")
+                    (insert selection)
+                    (setq emacs-input--original-content selection)))
+              (error
+               (message "Error processing selection: %s" err)))))))))
 
 ;;; Helper functions
 
@@ -226,12 +237,18 @@ This may open FILE if specified, otherwise creates a temporary file."
     (when (and file (emacs-input--temp-file-p file))
       (let ((app-info (frame-parameter nil 'emacs-input-app)))
         (setq-local emacs-input-current-app app-info)
-        (text-mode)
-        (emacs-input-mode 1)  ; Enable emacs-input-mode AFTER text-mode
         (setq emacs-input--original-content "")
+        ;; Set major mode first
+        (text-mode)
+        ;; Enable emacs-input-mode AFTER text-mode
+        (emacs-input-mode 1)
         ;; Try to get selected text
         (emacs-input--get-selection-async)
         (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))))
+
+;; Add alias for American spelling
+;;;###autoload
+(defalias 'emacs-input-initialize 'emacs-input-initialise)
 
 (defun emacs-input--temp-file-p (file)
   "Check if FILE is an emacs-input temporary file."
@@ -249,4 +266,4 @@ This may open FILE if specified, otherwise creates a temporary file."
         (delete-file file)))))
 
 (provide 'emacs-input)
-;;; emacs-input.el ends here
+;;; emacs-input-fixed.el ends here
