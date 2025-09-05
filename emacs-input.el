@@ -42,6 +42,23 @@
   :type 'string
   :group 'emacs-input)
 
+(defcustom emacs-input-auto-trigger-on-focus nil
+  "Whether to automatically trigger emacs-input when input fields gain focus."
+  :type 'boolean
+  :group 'emacs-input)
+
+(defcustom emacs-input-auto-trigger-delay 0.5
+  "Delay in seconds before auto-triggering emacs-input on focus."
+  :type 'number
+  :group 'emacs-input)
+
+(defcustom emacs-input-excluded-apps
+  '("Emacs" "Terminal" "iTerm2" "Xcode" "Visual Studio Code"
+    "IntelliJ IDEA" "PyCharm" "WebStorm")
+  "List of application names to exclude from auto-trigger."
+  :type '(repeat string)
+  :group 'emacs-input)
+
 ;;; Internal variables
 
 (defvar-local emacs-input-current-app nil
@@ -82,6 +99,54 @@
               (let ((mac-hs "/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"))
                 (when (file-executable-p mac-hs) mac-hs)))))
   emacs-input--hs-command)
+
+;;; Auto-trigger functionality
+
+(defun emacs-input-enable-auto-trigger ()
+  "Enable auto-trigger on input focus."
+  (interactive)
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
+    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                  "require('emacs-input').setAutoTrigger(true)")
+    (setq emacs-input-auto-trigger-on-focus t)
+    (message "emacs-input auto-trigger enabled")))
+
+(defun emacs-input-disable-auto-trigger ()
+  "Disable auto-trigger on input focus."
+  (interactive)
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
+    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                  "require('emacs-input').setAutoTrigger(false)")
+    (setq emacs-input-auto-trigger-on-focus nil)
+    (message "emacs-input auto-trigger disabled")))
+
+(defun emacs-input-toggle-auto-trigger ()
+  "Toggle auto-trigger on input focus."
+  (interactive)
+  (if emacs-input-auto-trigger-on-focus
+      (emacs-input-disable-auto-trigger)
+    (emacs-input-enable-auto-trigger)))
+
+(defun emacs-input-configure-auto-trigger ()
+  "Configure auto-trigger settings in Hammerspoon."
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
+    (let ((config-script (format "
+local emacs_input = require('emacs-input')
+local config = emacs_input.config or {}
+config.auto_trigger_on_focus = %s
+config.auto_trigger_delay = %s
+config.excluded_apps = %s
+emacs_input.config = config
+"
+                                 (if emacs-input-auto-trigger-on-focus "true" "false")
+                                 emacs-input-auto-trigger-delay
+                                 (format "{%s}"
+                                         (mapconcat (lambda (app) (format "\"%s\"" app))
+                                                   emacs-input-excluded-apps ", ")))))
+      (call-process (emacs-input--find-hs-command) nil nil nil "-c" config-script))))
 
 ;;; Frame and buffer management
 
@@ -419,7 +484,11 @@ This may open FILE if specified, otherwise creates a temporary file."
 (defun emacs-input--auto-initialize ()
   "Auto-initialize emacs-input frame when server starts."
   (when (server-running-p)
-    (run-with-timer 1.0 nil #'emacs-input-initialize-frame)))
+    (run-with-timer 1.0 nil #'emacs-input-initialize-frame)
+    ;; Configure auto-trigger if enabled
+    (when emacs-input-auto-trigger-on-focus
+      (run-with-timer 2.0 nil #'emacs-input-configure-auto-trigger)
+      (run-with-timer 2.5 nil #'emacs-input-enable-auto-trigger))))
 
 ;;;###autoload
 (add-hook 'server-switch-hook #'emacs-input--auto-initialize)
