@@ -194,6 +194,14 @@ else
     if test -n "$NEW_PID"; and test "$NEW_PID" != "-"; and test "$NEW_PID" != "$OLD_PID"
         print_success "Emacs service restarted (PID: $OLD_PID → $NEW_PID)"
         print_success "Emacs 服务已重启 (PID: $OLD_PID → $NEW_PID)"
+
+        # Wait for daemon to fully start and then start server / 等待daemon完全启动然后启动server
+        print_info "Starting Emacs server..."
+        print_info "启动 Emacs server..."
+        sleep 3
+        emacsclient --eval '(server-start)' > /dev/null 2>&1
+        print_success "Emacs server started"
+        print_success "Emacs server 已启动"
     else
         print_error "Failed to restart Emacs service"
         print_error "重启 Emacs 服务失败"
