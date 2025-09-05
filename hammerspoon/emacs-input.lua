@@ -7,6 +7,8 @@ local emacs_input = {}
 local focus_watcher = nil
 local auto_trigger_timer = nil
 local last_focused_element = nil
+local emacs_input_active = false
+local suppress_auto_trigger_until = 0
 
 -- Configuration
 local config = {
@@ -16,19 +18,12 @@ local config = {
     -- Emacsclient command
     emacsclient = "/run/current-system/sw/bin/emacsclient",
     -- Auto-trigger on input focus
-    auto_trigger_on_focus = false,
+    auto_trigger_on_focus = true,
     -- Delay before auto-triggering (in seconds)
-    auto_trigger_delay = 0.5,
+    auto_trigger_delay = 0,
     -- Applications to exclude from auto-trigger
     excluded_apps = {
-        "Emacs",
-        "Terminal",
-        "iTerm2",
-        "Xcode",
-        "Visual Studio Code",
-        "IntelliJ IDEA",
-        "PyCharm",
-        "WebStorm"
+        "Emacs"
     }
 }
 
@@ -179,6 +174,12 @@ function emacs_input.onFocusChanged()
         return
     end
 
+    -- Check if we should suppress auto-trigger temporarily
+    local current_time = hs.timer.secondsSinceEpoch()
+    if current_time < suppress_auto_trigger_until then
+        return
+    end
+
     -- Cancel any pending auto-trigger
     if auto_trigger_timer then
         auto_trigger_timer:stop()
@@ -195,34 +196,63 @@ function emacs_input.onFocusChanged()
         return
     end
 
+    -- Skip if emacs-input is currently active
+    if emacs_input_active then
+        return
+    end
+
     -- Check if focused element is an input field
     if emacs_input.isInputElement() then
         -- Set timer to auto-trigger after delay
-        auto_trigger_timer = hs.timer.doAfter(config.auto_trigger_delay, function()
+        if config.auto_trigger_delay > 0 then
+            auto_trigger_timer = hs.timer.doAfter(config.auto_trigger_delay, function()
+                emacs_input.trigger()
+                auto_trigger_timer = nil
+            end)
+        else
+            -- Immediate trigger
             emacs_input.trigger()
-            auto_trigger_timer = nil
-        end)
+        end
     end
+end
+
+-- Mark emacs-input as completed (called from Emacs)
+function emacs_input.markCompleted()
+    emacs_input_active = false
+    -- Suppress auto-trigger for 3 seconds after completion
+    suppress_auto_trigger_until = hs.timer.secondsSinceEpoch() + 3
+end
+
+-- Reset auto-trigger suppression (for manual override)
+function emacs_input.resetSuppression()
+    suppress_auto_trigger_until = 0
 end
 
 -- Trigger emacs-input
 function emacs_input.trigger()
+    -- Mark emacs-input as active
+    emacs_input_active = true
+
     -- Call emacsclient to trigger fast emacs-input with GUI client
     -- Use -c to create client frame, then emacs-input-fast will use that frame
     local task = hs.task.new(config.emacsclient, function(exitCode, stdOut, stdErr)
         if exitCode ~= 0 then
             hs.alert.show("Failed to launch emacs-input: " .. (stdErr or "unknown error"))
+            -- Mark as inactive on error
+            emacs_input_active = false
         end
     end, {"-e", "(emacs-input-fast)"})
 
     task:start()
 end
 
--- Enable/disable auto-trigger on focus
-function emacs_input.setAutoTrigger(enabled)
-    config.auto_trigger_on_focus = enabled
+-- Setup global hotkey and auto-trigger
+function emacs_input.setup()
+    -- Bind global hotkey
+    hs.hotkey.bind(config.hotkey_mods, config.hotkey_key, emacs_input.trigger)
 
-    if enabled then
+    -- Setup auto-trigger if enabled
+    if config.auto_trigger_on_focus then
         -- Start focus monitoring
         if not focus_watcher then
             focus_watcher = hs.application.watcher.new(function(appName, eventType, appObject)
@@ -243,41 +273,9 @@ function emacs_input.setAutoTrigger(enabled)
                 end)
             emacs_input.axObserver:start()
         end
-
-        hs.alert.show("emacs-input auto-trigger enabled")
-    else
-        -- Stop focus monitoring
-        if focus_watcher then
-            focus_watcher:stop()
-            focus_watcher = nil
-        end
-
-        if emacs_input.axObserver then
-            emacs_input.axObserver:stop()
-            emacs_input.axObserver = nil
-        end
-
-        -- Cancel any pending auto-trigger
-        if auto_trigger_timer then
-            auto_trigger_timer:stop()
-            auto_trigger_timer = nil
-        end
-
-        hs.alert.show("emacs-input auto-trigger disabled")
-    end
-end
-
--- Setup global hotkey and optional auto-trigger
-function emacs_input.setup()
-    -- Bind global hotkey
-    hs.hotkey.bind(config.hotkey_mods, config.hotkey_key, emacs_input.trigger)
-
-    -- Setup auto-trigger if enabled
-    if config.auto_trigger_on_focus then
-        emacs_input.setAutoTrigger(true)
     end
 
-    hs.alert.show("emacs-input loaded (⌘E)")
+    hs.alert.show("emacs-input loaded (⌘E)" .. (config.auto_trigger_on_focus and " + auto-trigger" or ""))
 end
 
 -- Cleanup

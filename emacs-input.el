@@ -42,19 +42,18 @@
   :type 'string
   :group 'emacs-input)
 
-(defcustom emacs-input-auto-trigger-on-focus nil
+(defcustom emacs-input-auto-trigger-on-focus t
   "Whether to automatically trigger emacs-input when input fields gain focus."
   :type 'boolean
   :group 'emacs-input)
 
-(defcustom emacs-input-auto-trigger-delay 0.5
+(defcustom emacs-input-auto-trigger-delay 0
   "Delay in seconds before auto-triggering emacs-input on focus."
   :type 'number
   :group 'emacs-input)
 
 (defcustom emacs-input-excluded-apps
-  '("Emacs" "Terminal" "iTerm2" "Xcode" "Visual Studio Code"
-    "IntelliJ IDEA" "PyCharm" "WebStorm")
+  '("Emacs")
   "List of application names to exclude from auto-trigger."
   :type '(repeat string)
   :group 'emacs-input)
@@ -102,33 +101,6 @@
 
 ;;; Auto-trigger functionality
 
-(defun emacs-input-enable-auto-trigger ()
-  "Enable auto-trigger on input focus."
-  (interactive)
-  (when (and (file-exists-p emacs-input-hammerspoon-script)
-             (emacs-input--find-hs-command))
-    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
-                  "require('emacs-input').setAutoTrigger(true)")
-    (setq emacs-input-auto-trigger-on-focus t)
-    (message "emacs-input auto-trigger enabled")))
-
-(defun emacs-input-disable-auto-trigger ()
-  "Disable auto-trigger on input focus."
-  (interactive)
-  (when (and (file-exists-p emacs-input-hammerspoon-script)
-             (emacs-input--find-hs-command))
-    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
-                  "require('emacs-input').setAutoTrigger(false)")
-    (setq emacs-input-auto-trigger-on-focus nil)
-    (message "emacs-input auto-trigger disabled")))
-
-(defun emacs-input-toggle-auto-trigger ()
-  "Toggle auto-trigger on input focus."
-  (interactive)
-  (if emacs-input-auto-trigger-on-focus
-      (emacs-input-disable-auto-trigger)
-    (emacs-input-enable-auto-trigger)))
-
 (defun emacs-input-configure-auto-trigger ()
   "Configure auto-trigger settings in Hammerspoon."
   (when (and (file-exists-p emacs-input-hammerspoon-script)
@@ -147,6 +119,15 @@ emacs_input.config = config
                                          (mapconcat (lambda (app) (format "\"%s\"" app))
                                                    emacs-input-excluded-apps ", ")))))
       (call-process (emacs-input--find-hs-command) nil nil nil "-c" config-script))))
+
+(defun emacs-input-reset-suppression ()
+  "Reset auto-trigger suppression (allow immediate auto-trigger)."
+  (interactive)
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
+    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                  "require('emacs-input').resetSuppression()")
+    (message "emacs-input auto-trigger suppression reset")))
 
 ;;; Frame and buffer management
 
@@ -378,6 +359,13 @@ This may open FILE if specified, otherwise creates a temporary file."
   (emacs-input--find-hs-command)
   (message "emacs-input frame initialized"))
 
+(defun emacs-input--notify-completion ()
+  "Notify Hammerspoon that emacs-input has completed."
+  (when (and (file-exists-p emacs-input-hammerspoon-script)
+             (emacs-input--find-hs-command))
+    (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                  "require('emacs-input').markCompleted()")))
+
 (defun emacs-input-finish ()
   "Finish editing and paste content back."
   (interactive)
@@ -395,6 +383,8 @@ This may open FILE if specified, otherwise creates a temporary file."
                    (emacs-input--find-hs-command))
           (call-process (emacs-input--find-hs-command) nil nil nil "-c"
                        (format "require('emacs-input').pasteContent(%S)" content))))
+      ;; Notify completion to prevent auto-trigger
+      (emacs-input--notify-completion)
       ;; Handle different buffer types
       (cond
        (is-temp-file
@@ -417,6 +407,8 @@ This may open FILE if specified, otherwise creates a temporary file."
     (let ((is-temp-file (and (buffer-file-name)
                             (emacs-input--temp-file-p (buffer-file-name))))
           (is-emacs-input-buffer (string= (buffer-name) "*emacs-input*")))
+      ;; Notify completion to prevent auto-trigger
+      (emacs-input--notify-completion)
       (set-buffer-modified-p nil)
       (cond
        (is-temp-file
@@ -487,8 +479,7 @@ This may open FILE if specified, otherwise creates a temporary file."
     (run-with-timer 1.0 nil #'emacs-input-initialize-frame)
     ;; Configure auto-trigger if enabled
     (when emacs-input-auto-trigger-on-focus
-      (run-with-timer 2.0 nil #'emacs-input-configure-auto-trigger)
-      (run-with-timer 2.5 nil #'emacs-input-enable-auto-trigger))))
+      (run-with-timer 2.0 nil #'emacs-input-configure-auto-trigger))))
 
 ;;;###autoload
 (add-hook 'server-switch-hook #'emacs-input--auto-initialize)
