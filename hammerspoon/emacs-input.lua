@@ -83,18 +83,45 @@ function emacs_input.getSelection()
     print(selection)
 end
 
+-- Store the last focused app info for pasting back
+local last_focused_app = nil
+
+-- Update last focused app when focus changes
+function emacs_input.updateLastFocusedApp()
+    local app = hs.application.frontmostApplication()
+    if app and app:name() ~= "Emacs" then
+        last_focused_app = {
+            name = app:name(),
+            bundleID = app:bundleID(),
+            app = app
+        }
+    end
+end
+
 -- Paste content back to the original application
 function emacs_input.pasteContent(content)
     if not content or content == "" then
         return
     end
-    
+
     -- Set clipboard content
     hs.pasteboard.setContents(content)
-    
-    -- Small delay then paste
-    hs.timer.doAfter(0.05, function()
-        hs.eventtap.keyStroke({"cmd"}, "v")
+
+    -- Wait for clipboard to be set
+    hs.timer.doAfter(0.1, function()
+        -- Try to focus back to the last focused non-Emacs app
+        if last_focused_app and last_focused_app.app then
+            last_focused_app.app:activate()
+            -- Wait for app to activate, then paste
+            hs.timer.doAfter(0.2, function()
+                hs.eventtap.keyStroke({"cmd"}, "v")
+            end)
+        else
+            -- Fallback: just paste to whatever is frontmost
+            hs.timer.doAfter(0.1, function()
+                hs.eventtap.keyStroke({"cmd"}, "v")
+            end)
+        end
     end)
 end
 
@@ -170,6 +197,9 @@ end
 
 -- Handle focus change for auto-trigger
 function emacs_input.onFocusChanged()
+    -- Update last focused app for pasting back
+    emacs_input.updateLastFocusedApp()
+
     if not config.auto_trigger_on_focus then
         return
     end
@@ -263,6 +293,9 @@ function emacs_input.setup()
             end)
             focus_watcher:start()
         end
+
+        -- Initialize with current app
+        emacs_input.updateLastFocusedApp()
 
         -- Note: More precise accessibility monitoring can be added later if needed
         -- For now, we rely on application switching events which work reliably

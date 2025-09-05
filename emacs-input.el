@@ -375,14 +375,18 @@ This may open FILE if specified, otherwise creates a temporary file."
                             (emacs-input--temp-file-p (buffer-file-name))))
           (is-emacs-input-buffer (string= (buffer-name) "*emacs-input*")))
       (unless (string= content emacs-input--original-content)
-        ;; Copy to clipboard
+        ;; Copy to clipboard first (this ensures content is available)
         (kill-new content)
         (gui-select-text content)
-        ;; Paste via Hammerspoon
-        (when (and (file-exists-p emacs-input-hammerspoon-script)
-                   (emacs-input--find-hs-command))
-          (call-process (emacs-input--find-hs-command) nil nil nil "-c"
-                       (format "require('emacs-input').pasteContent(%S)" content))))
+        ;; Try to paste via Hammerspoon
+        (if (and (file-exists-p emacs-input-hammerspoon-script)
+                 (emacs-input--find-hs-command))
+            (progn
+              (call-process (emacs-input--find-hs-command) nil nil nil "-c"
+                           (format "require('emacs-input').pasteContent(%S)" content))
+              (message "Content pasted via Hammerspoon"))
+          ;; Fallback: content is already in clipboard, user can paste manually
+          (message "Content copied to clipboard - paste with Cmd+V")))
       ;; Notify completion to prevent auto-trigger
       (emacs-input--notify-completion)
       ;; Handle different buffer types
