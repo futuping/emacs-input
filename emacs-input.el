@@ -382,13 +382,19 @@ This may open FILE if specified, otherwise creates a temporary file."
         (if (and (file-exists-p emacs-input-hammerspoon-script)
                  (emacs-input--find-hs-command))
             (progn
+              ;; pasteContent will handle markCompleted internally after pasting
               (call-process (emacs-input--find-hs-command) nil nil nil "-c"
                            (format "require('emacs-input').pasteContent(%S)" content))
               (message "Content pasted via Hammerspoon"))
           ;; Fallback: content is already in clipboard, user can paste manually
-          (message "Content copied to clipboard - paste with Cmd+V")))
-      ;; Notify completion to prevent auto-trigger
-      (emacs-input--notify-completion)
+          ;; In this case, we need to manually mark completion
+          (progn
+            (emacs-input--notify-completion)
+            (message "Content copied to clipboard - paste with Cmd+V"))))
+      ;; Only notify completion if we didn't use Hammerspoon (fallback case handled above)
+      (when (not (and (file-exists-p emacs-input-hammerspoon-script)
+                      (emacs-input--find-hs-command)))
+        (emacs-input--notify-completion))
       ;; Handle different buffer types
       (cond
        (is-temp-file

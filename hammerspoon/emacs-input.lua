@@ -101,6 +101,8 @@ end
 -- Paste content back to the original application
 function emacs_input.pasteContent(content)
     if not content or content == "" then
+        -- Even if content is empty, mark as completed to prevent auto-trigger
+        emacs_input.markCompleted()
         return
     end
 
@@ -115,11 +117,19 @@ function emacs_input.pasteContent(content)
             -- Wait for app to activate, then paste
             hs.timer.doAfter(0.2, function()
                 hs.eventtap.keyStroke({"cmd"}, "v")
+                -- Mark completion after pasting to prevent immediate re-trigger
+                hs.timer.doAfter(0.1, function()
+                    emacs_input.markCompleted()
+                end)
             end)
         else
             -- Fallback: just paste to whatever is frontmost
             hs.timer.doAfter(0.1, function()
                 hs.eventtap.keyStroke({"cmd"}, "v")
+                -- Mark completion after pasting to prevent immediate re-trigger
+                hs.timer.doAfter(0.1, function()
+                    emacs_input.markCompleted()
+                end)
             end)
         end
     end)
@@ -150,25 +160,41 @@ end
 -- Check if the focused element is likely an input field
 function emacs_input.isInputElement()
     local app = hs.application.frontmostApplication()
-    if not app then return false end
+    if not app then
+        print("No frontmost application")
+        return false
+    end
 
     -- Get accessibility element under mouse cursor or focused element
     local axApp = hs.axuielement.applicationElement(app)
-    if not axApp then return false end
+    if not axApp then
+        print("No accessibility element for app")
+        return false
+    end
 
     local focusedElement = axApp:attributeValue("AXFocusedUIElement")
-    if not focusedElement then return false end
+    if not focusedElement then
+        print("No focused UI element")
+        return false
+    end
 
     -- Check if the focused element is a text field or text area
     local role = focusedElement:attributeValue("AXRole")
     local subrole = focusedElement:attributeValue("AXSubrole")
+    local description = focusedElement:attributeValue("AXDescription") or ""
+    local title = focusedElement:attributeValue("AXTitle") or ""
+
+    -- Debug logging
+    print(string.format("Focused element - Role: %s, Subrole: %s, Description: %s, Title: %s",
+                       role or "nil", subrole or "nil", description, title))
 
     -- Common input field roles
     local inputRoles = {
         "AXTextField",
         "AXTextArea",
         "AXComboBox",
-        "AXSearchField"
+        "AXSearchField",
+        "AXStaticText"  -- Some web inputs appear as static text
     }
 
     local inputSubroles = {
@@ -179,6 +205,7 @@ function emacs_input.isInputElement()
     -- Check role
     for _, inputRole in ipairs(inputRoles) do
         if role == inputRole then
+            print(string.format("Input element detected by role: %s", role))
             return true
         end
     end
@@ -187,11 +214,21 @@ function emacs_input.isInputElement()
     if subrole then
         for _, inputSubrole in ipairs(inputSubroles) do
             if subrole == inputSubrole then
+                print(string.format("Input element detected by subrole: %s", subrole))
                 return true
             end
         end
     end
 
+    -- Additional checks for web-based inputs
+    -- Check if element is editable
+    local editable = focusedElement:attributeValue("AXEditable")
+    if editable then
+        print("Input element detected by AXEditable attribute")
+        return true
+    end
+
+    print("No input element detected")
     return false
 end
 
@@ -204,9 +241,20 @@ function emacs_input.onFocusChanged()
         return
     end
 
-    -- Check if we should suppress auto-trigger temporarily
+    local app = hs.application.frontmostApplication()
+    if not app then return end
+
+    local appName = app:name()
     local current_time = hs.timer.secondsSinceEpoch()
+
+    -- Debug logging
+    print(string.format("Focus changed to: %s (time: %f, suppress_until: %f)",
+                       appName, current_time, suppress_auto_trigger_until))
+
+    -- Check if we should suppress auto-trigger temporarily
     if current_time < suppress_auto_trigger_until then
+        print(string.format("Auto-trigger suppressed for %s (%.1f seconds remaining)",
+                           appName, suppress_auto_trigger_until - current_time))
         return
     end
 
@@ -216,23 +264,21 @@ function emacs_input.onFocusChanged()
         auto_trigger_timer = nil
     end
 
-    local app = hs.application.frontmostApplication()
-    if not app then return end
-
-    local appName = app:name()
-
     -- Skip if app is excluded
     if emacs_input.isAppExcluded(appName) then
+        print(string.format("App %s is excluded from auto-trigger", appName))
         return
     end
 
     -- Skip if emacs-input is currently active
     if emacs_input_active then
+        print("emacs-input is currently active, skipping auto-trigger")
         return
     end
 
     -- Check if focused element is an input field
     if emacs_input.isInputElement() then
+        print(string.format("Input element detected in %s, triggering emacs-input", appName))
         -- Set timer to auto-trigger after delay
         if config.auto_trigger_delay > 0 then
             auto_trigger_timer = hs.timer.doAfter(config.auto_trigger_delay, function()
@@ -243,19 +289,41 @@ function emacs_input.onFocusChanged()
             -- Immediate trigger
             emacs_input.trigger()
         end
+    else
+        print(string.format("No input element detected in %s", appName))
     end
 end
 
 -- Mark emacs-input as completed (called from Emacs)
 function emacs_input.markCompleted()
     emacs_input_active = false
-    -- Suppress auto-trigger for 3 seconds after completion
-    suppress_auto_trigger_until = hs.timer.secondsSinceEpoch() + 3
+    -- Suppress auto-trigger for 3 seconds after completion to prevent loops
+    local current_time = hs.timer.secondsSinceEpoch()
+    suppress_auto_trigger_until = current_time + 3
+
+    -- Debug logging
+    print(string.format("emacs-input completed, suppressing auto-trigger until %f (current: %f)",
+                       suppress_auto_trigger_until, current_time))
 end
 
 -- Reset auto-trigger suppression (for manual override)
 function emacs_input.resetSuppression()
     suppress_auto_trigger_until = 0
+    print("Auto-trigger suppression reset - emacs-input can now auto-trigger immediately")
+end
+
+-- Get current status for debugging
+function emacs_input.getStatus()
+    local current_time = hs.timer.secondsSinceEpoch()
+    local suppressed = current_time < suppress_auto_trigger_until
+    local remaining = suppressed and (suppress_auto_trigger_until - current_time) or 0
+
+    print(string.format("emacs-input status:"))
+    print(string.format("  Active: %s", emacs_input_active and "yes" or "no"))
+    print(string.format("  Auto-trigger enabled: %s", config.auto_trigger_on_focus and "yes" or "no"))
+    print(string.format("  Suppressed: %s", suppressed and string.format("yes (%.1f seconds remaining)", remaining) or "no"))
+    print(string.format("  Current time: %f", current_time))
+    print(string.format("  Suppress until: %f", suppress_auto_trigger_until))
 end
 
 -- Trigger emacs-input
