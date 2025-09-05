@@ -250,9 +250,23 @@ This may open FILE if specified, otherwise creates a temporary file."
 
 ;;;###autoload
 (defun emacs-input-fast ()
-  "Fast emacs-input using current frame (recommended)."
+  "Fast emacs-input using optimized approach (recommended)."
   (interactive)
-  ;; If called from emacsclient -c, use the current frame instead of creating new one
+  ;; Use cached app info to avoid blocking
+  (let* ((app-info (emacs-input--get-app-info-cached))
+         (temp-file (emacs-input--create-temp-file app-info))
+         (params (emacs-input--command-params app-info temp-file)))
+    ;; Start async app info update in background
+    (emacs-input--get-app-info-async)
+    ;; Launch emacsclient with frame parameters (like original emacs-input)
+    (apply #'call-process "emacsclient" nil 0 nil params)
+    "emacs-input-fast launched successfully"))
+
+;;;###autoload
+(defun emacs-input-instant ()
+  "Instant emacs-input using current frame (for internal use)."
+  (interactive)
+  ;; If called from within Emacs, use the current frame
   (let ((current-frame (selected-frame))
         (buffer (emacs-input--create-buffer)))
     ;; Configure current frame for emacs-input
@@ -273,7 +287,7 @@ This may open FILE if specified, otherwise creates a temporary file."
     (goto-char (point-max))
     (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")
     ;; Return a friendly message instead of timer object
-    "emacs-input-fast launched successfully"))
+    "emacs-input-instant launched successfully"))
 
 ;;;###autoload
 (defun emacs-input-quick ()
