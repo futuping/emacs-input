@@ -96,6 +96,7 @@ end
 -- Trigger emacs-input
 function emacs_input.trigger()
     -- Call emacsclient to trigger fast emacs-input with GUI client
+    -- Use -c to create client frame, then emacs-input-fast will use that frame
     local task = hs.task.new(config.emacsclient, function(exitCode, stdOut, stdErr)
         if exitCode ~= 0 then
             hs.alert.show("Failed to launch emacs-input: " .. (stdErr or "unknown error"))

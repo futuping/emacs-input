@@ -250,14 +250,30 @@ This may open FILE if specified, otherwise creates a temporary file."
 
 ;;;###autoload
 (defun emacs-input-fast ()
-  "Fast emacs-input using pre-created frame (recommended)."
+  "Fast emacs-input using current frame (recommended)."
   (interactive)
-  ;; Cache app info asynchronously, don't block UI
-  (emacs-input--get-app-info-async)
-  ;; Show frame immediately (with safety checks)
-  (emacs-input--show-frame-safe)
-  ;; Get selection asynchronously after frame is shown
-  (run-with-timer 0.1 nil #'emacs-input--get-selection-async))
+  ;; If called from emacsclient -c, use the current frame instead of creating new one
+  (let ((current-frame (selected-frame))
+        (buffer (emacs-input--create-buffer)))
+    ;; Configure current frame for emacs-input
+    (modify-frame-parameters current-frame emacs-input-frame-parameters)
+    ;; Prepare buffer
+    (with-current-buffer buffer
+      (erase-buffer)
+      (setq emacs-input--original-content "")
+      (text-mode)
+      (emacs-input-mode 1))
+    ;; Switch to emacs-input buffer
+    (switch-to-buffer buffer)
+    ;; Cache app info asynchronously, don't block UI
+    (emacs-input--get-app-info-async)
+    ;; Get selection asynchronously after frame is shown
+    (run-with-timer 0.1 nil #'emacs-input--get-selection-async)
+    ;; Position cursor at end of buffer
+    (goto-char (point-max))
+    (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")
+    ;; Return a friendly message instead of timer object
+    "emacs-input-fast launched successfully"))
 
 ;;;###autoload
 (defun emacs-input-quick ()
@@ -289,7 +305,8 @@ This may open FILE if specified, otherwise creates a temporary file."
   (when emacs-input-mode
     (let ((content (buffer-string))
           (is-temp-file (and (buffer-file-name)
-                            (emacs-input--temp-file-p (buffer-file-name)))))
+                            (emacs-input--temp-file-p (buffer-file-name))))
+          (is-emacs-input-buffer (string= (buffer-name) "*emacs-input*")))
       (unless (string= content emacs-input--original-content)
         ;; Copy to clipboard
         (kill-new content)
@@ -300,32 +317,41 @@ This may open FILE if specified, otherwise creates a temporary file."
           (call-process (emacs-input--find-hs-command) nil nil nil "-c"
                        (format "require('emacs-input').pasteContent(%S)" content))))
       ;; Handle different buffer types
-      (if is-temp-file
-          ;; Traditional temp file approach
-          (server-buffer-done (current-buffer))
+      (cond
+       (is-temp-file
+        ;; Traditional temp file approach
+        (server-buffer-done (current-buffer)))
+       (is-emacs-input-buffer
+        ;; Fast mode with *emacs-input* buffer - close client frame
+        (server-buffer-done (current-buffer)))
+       (t
         ;; Pre-created buffer approach - hide frame and clear buffer
-        (progn
-          (when (and emacs-input--frame (frame-live-p emacs-input--frame))
-            (make-frame-invisible emacs-input--frame))
-          (erase-buffer)
-          (emacs-input-mode -1))))))
+        (when (and emacs-input--frame (frame-live-p emacs-input--frame))
+          (make-frame-invisible emacs-input--frame))
+        (erase-buffer)
+        (emacs-input-mode -1))))))
 
 (defun emacs-input-abort ()
   "Abort editing without pasting."
   (interactive)
   (when emacs-input-mode
     (let ((is-temp-file (and (buffer-file-name)
-                            (emacs-input--temp-file-p (buffer-file-name)))))
+                            (emacs-input--temp-file-p (buffer-file-name))))
+          (is-emacs-input-buffer (string= (buffer-name) "*emacs-input*")))
       (set-buffer-modified-p nil)
-      (if is-temp-file
-          ;; Traditional temp file approach
-          (server-buffer-done (current-buffer))
+      (cond
+       (is-temp-file
+        ;; Traditional temp file approach
+        (server-buffer-done (current-buffer)))
+       (is-emacs-input-buffer
+        ;; Fast mode with *emacs-input* buffer - close client frame
+        (server-buffer-done (current-buffer)))
+       (t
         ;; Pre-created buffer approach - hide frame and clear buffer
-        (progn
-          (when (and emacs-input--frame (frame-live-p emacs-input--frame))
-            (make-frame-invisible emacs-input--frame))
-          (erase-buffer)
-          (emacs-input-mode -1))))))
+        (when (and emacs-input--frame (frame-live-p emacs-input--frame))
+          (make-frame-invisible emacs-input--frame))
+        (erase-buffer)
+        (emacs-input-mode -1))))))
 
 ;;; Minor mode
 
