@@ -264,15 +264,8 @@ function emacs_input.setup()
             focus_watcher:start()
         end
 
-        -- Also monitor accessibility events for more precise input field detection
-        if not emacs_input.axObserver then
-            emacs_input.axObserver = hs.axuielement.observer.new(hs.application.frontmostApplication():pid())
-            emacs_input.axObserver:addWatcher(hs.axuielement.observer.notifications.focusedUIElementChanged,
-                function(element, notification, observer)
-                    hs.timer.doAfter(0.1, emacs_input.onFocusChanged)
-                end)
-            emacs_input.axObserver:start()
-        end
+        -- Note: More precise accessibility monitoring can be added later if needed
+        -- For now, we rely on application switching events which work reliably
     end
 
     hs.alert.show("emacs-input loaded (⌘E)" .. (config.auto_trigger_on_focus and " + auto-trigger" or ""))
@@ -288,11 +281,6 @@ function emacs_input.cleanup()
     if focus_watcher then
         focus_watcher:stop()
         focus_watcher = nil
-    end
-
-    if emacs_input.axObserver then
-        emacs_input.axObserver:stop()
-        emacs_input.axObserver = nil
     end
 
     -- Cancel any pending auto-trigger
