@@ -100,7 +100,7 @@ end
 echo ""
 print_info "Package information:"
 print_info "包信息："
-set PACKAGE_INFO (emacsclient --eval '(straight--get-repo-dir "emacs-input")' 2>/dev/null | tr -d '"')
+set PACKAGE_INFO (emacsclient --eval '(expand-file-name "emacs-input" (straight--repos-dir))' 2>/dev/null | tr -d '"')
 if test -n "$PACKAGE_INFO"
     print_info "Package location: $PACKAGE_INFO"
     print_info "包位置：$PACKAGE_INFO"
