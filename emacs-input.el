@@ -56,10 +56,22 @@
 (defvar emacs-input--app-info nil
   "Current application information.")
 
+(defvar emacs-input--frame nil
+  "Pre-created frame for emacs-input.")
+
+(defvar emacs-input--app-info-cache nil
+  "Cached application information.")
+
+(defvar emacs-input--cache-time 0
+  "Time when app info was last cached.")
+
+(defvar emacs-input--buffer nil
+  "Pre-created buffer for emacs-input.")
+
 ;;; Core functionality
 
 (defun emacs-input--find-hs-command ()
-  "Find the hs command path."
+  "Find the hs command path with caching."
   (unless emacs-input--hs-command
     (setq emacs-input--hs-command
           (or (executable-find "hs")
@@ -70,6 +82,46 @@
               (let ((mac-hs "/Applications/Hammerspoon.app/Contents/Frameworks/hs/hs"))
                 (when (file-executable-p mac-hs) mac-hs)))))
   emacs-input--hs-command)
+
+;;; Frame and buffer management
+
+(defun emacs-input--create-frame ()
+  "Create and hide emacs-input frame."
+  (unless (and emacs-input--frame (frame-live-p emacs-input--frame))
+    (setq emacs-input--frame
+          (make-frame (append emacs-input-frame-parameters
+                             '((visibility . nil))))))  ; Start hidden
+  emacs-input--frame)
+
+(defun emacs-input--create-buffer ()
+  "Create or reuse emacs-input buffer."
+  (unless (and emacs-input--buffer (buffer-live-p emacs-input--buffer))
+    (setq emacs-input--buffer (generate-new-buffer "*emacs-input*")))
+  emacs-input--buffer)
+
+(defun emacs-input--prepare-buffer ()
+  "Prepare the emacs-input buffer for editing."
+  (let ((buffer (emacs-input--create-buffer)))
+    (with-current-buffer buffer
+      (erase-buffer)
+      (setq emacs-input--original-content "")
+      (text-mode)
+      (emacs-input-mode 1)
+      (setq-local emacs-input-current-app emacs-input--app-info-cache))
+    buffer))
+
+(defun emacs-input--show-frame ()
+  "Show and focus the emacs-input frame."
+  (let ((frame (emacs-input--create-frame))
+        (buffer (emacs-input--prepare-buffer)))
+    (select-frame frame)
+    (switch-to-buffer buffer)
+    (make-frame-visible frame)
+    (raise-frame frame)
+    (focus-frame frame)
+    ;; Position cursor at end of buffer
+    (goto-char (point-max))
+    (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
 
 (defun emacs-input--get-app-info-async ()
   "Asynchronously get application information via Hammerspoon."
@@ -132,6 +184,15 @@
             (read output)
           (error nil))))))
 
+(defun emacs-input--get-app-info-cached ()
+  "Get app info with caching to avoid repeated calls."
+  (let ((now (float-time)))
+    (when (or (null emacs-input--app-info-cache)
+              (> (- now emacs-input--cache-time) 2.0))  ; 2 second cache
+      (setq emacs-input--app-info-cache (emacs-input--get-app-info)
+            emacs-input--cache-time now))
+    emacs-input--app-info-cache))
+
 (defun emacs-input--create-temp-file (app-info)
   "Create a temporary file for editing."
   (let* ((temp-name (format "emacs-input-%s-%s"
@@ -170,10 +231,21 @@ This may open FILE if specified, otherwise creates a temporary file."
     (apply #'call-process "emacsclient" nil 0 nil params)))
 
 ;;;###autoload
+(defun emacs-input-fast ()
+  "Fast emacs-input using pre-created frame (recommended)."
+  (interactive)
+  ;; Cache app info asynchronously, don't block UI
+  (emacs-input--get-app-info-async)
+  ;; Show frame immediately
+  (emacs-input--show-frame)
+  ;; Get selection asynchronously after frame is shown
+  (run-with-timer 0.1 nil #'emacs-input--get-selection-async))
+
+;;;###autoload
 (defun emacs-input-quick ()
   "Quick emacs-input without creating new process (for internal use)."
   (interactive)
-  (let* ((app-info (emacs-input--get-app-info))
+  (let* ((app-info (emacs-input--get-app-info-cached))
          (temp-file (emacs-input--create-temp-file app-info)))
     (find-file temp-file)
     (setq-local emacs-input-current-app app-info)
@@ -183,11 +255,23 @@ This may open FILE if specified, otherwise creates a temporary file."
     (emacs-input--get-selection-async)
     (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
 
+;;;###autoload
+(defun emacs-input-initialize-frame ()
+  "Initialize emacs-input frame and buffer for faster access."
+  (interactive)
+  (emacs-input--create-frame)
+  (emacs-input--create-buffer)
+  ;; Pre-cache hs command path
+  (emacs-input--find-hs-command)
+  (message "emacs-input frame initialized"))
+
 (defun emacs-input-finish ()
   "Finish editing and paste content back."
   (interactive)
   (when emacs-input-mode
-    (let ((content (buffer-string)))
+    (let ((content (buffer-string))
+          (is-temp-file (and (buffer-file-name)
+                            (emacs-input--temp-file-p (buffer-file-name)))))
       (unless (string= content emacs-input--original-content)
         ;; Copy to clipboard
         (kill-new content)
@@ -197,15 +281,33 @@ This may open FILE if specified, otherwise creates a temporary file."
                    (emacs-input--find-hs-command))
           (call-process (emacs-input--find-hs-command) nil nil nil "-c"
                        (format "require('emacs-input').pasteContent(%S)" content))))
-      ;; Close the client
-      (server-buffer-done (current-buffer)))))
+      ;; Handle different buffer types
+      (if is-temp-file
+          ;; Traditional temp file approach
+          (server-buffer-done (current-buffer))
+        ;; Pre-created buffer approach - hide frame and clear buffer
+        (progn
+          (when (and emacs-input--frame (frame-live-p emacs-input--frame))
+            (make-frame-invisible emacs-input--frame))
+          (erase-buffer)
+          (emacs-input-mode -1))))))
 
 (defun emacs-input-abort ()
   "Abort editing without pasting."
   (interactive)
   (when emacs-input-mode
-    (set-buffer-modified-p nil)
-    (server-buffer-done (current-buffer))))
+    (let ((is-temp-file (and (buffer-file-name)
+                            (emacs-input--temp-file-p (buffer-file-name)))))
+      (set-buffer-modified-p nil)
+      (if is-temp-file
+          ;; Traditional temp file approach
+          (server-buffer-done (current-buffer))
+        ;; Pre-created buffer approach - hide frame and clear buffer
+        (progn
+          (when (and emacs-input--frame (frame-live-p emacs-input--frame))
+            (make-frame-invisible emacs-input--frame))
+          (erase-buffer)
+          (emacs-input-mode -1))))))
 
 ;;; Minor mode
 
@@ -254,6 +356,16 @@ This may open FILE if specified, otherwise creates a temporary file."
 ;;;###autoload
 (add-hook 'server-visit-hook #'emacs-input-initialise)
 (add-hook 'server-done-hook #'emacs-input--cleanup)
+
+;; Auto-initialize frame when server starts
+(defun emacs-input--auto-initialize ()
+  "Auto-initialize emacs-input frame when server starts."
+  (when (server-running-p)
+    (run-with-timer 1.0 nil #'emacs-input-initialize-frame)))
+
+;;;###autoload
+(add-hook 'server-switch-hook #'emacs-input--auto-initialize)
+(add-hook 'after-init-hook #'emacs-input--auto-initialize)
 
 (defun emacs-input--cleanup ()
   "Clean up emacs-input temporary files."

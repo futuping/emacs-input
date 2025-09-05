@@ -228,14 +228,16 @@ else
 end
 
 # Check if frame is initialized / 检查 frame 是否已初始化
-set FRAME_READY (emacsclient --eval '(if (and (boundp \'emacs-input--frame) emacs-input--frame) "yes" "no")' 2>/dev/null | tr -d '"')
+set FRAME_READY (emacsclient --eval '(if (and (boundp \'emacs-input--frame) emacs-input--frame (frame-live-p emacs-input--frame)) "yes" "no")' 2>/dev/null | tr -d '"')
 if test "$FRAME_READY" = "yes"
     print_success "emacs-input frame is ready"
     print_success "emacs-input frame 已就绪"
 else
-    print_info "Initializing emacs-input frame..."
-    print_info "初始化 emacs-input frame..."
-    emacsclient --eval '(emacs-input-initialize)' > /dev/null 2>&1
+    print_info "Initializing emacs-input frame for fast access..."
+    print_info "初始化 emacs-input frame 以实现快速访问..."
+    emacsclient --eval '(emacs-input-initialize-frame)' > /dev/null 2>&1
+    print_success "Fast frame initialized"
+    print_success "快速 frame 已初始化"
 end
 
 # ====================================================================
