@@ -118,10 +118,28 @@
     (switch-to-buffer buffer)
     (make-frame-visible frame)
     (raise-frame frame)
-    (focus-frame frame)
+    ;; Focus frame (compatible with different Emacs versions)
+    (when (fboundp 'focus-frame)
+      (focus-frame frame))
     ;; Position cursor at end of buffer
     (goto-char (point-max))
     (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
+
+(defun emacs-input--show-frame-safe ()
+  "Safely show frame, handling terminal vs GUI context."
+  (condition-case err
+      (if (display-graphic-p)
+          (emacs-input--show-frame)
+        ;; Fallback for terminal mode - use current frame
+        (let ((buffer (emacs-input--prepare-buffer)))
+          (switch-to-buffer buffer)
+          (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))
+    (error
+     (message "Error showing emacs-input frame: %s" err)
+     ;; Fallback to simple buffer
+     (let ((buffer (emacs-input--prepare-buffer)))
+       (switch-to-buffer buffer)
+       (message "emacs-input ready (fallback mode) - Press C-c C-c to finish, C-c C-k to abort")))))
 
 (defun emacs-input--get-app-info-async ()
   "Asynchronously get application information via Hammerspoon."
@@ -236,8 +254,8 @@ This may open FILE if specified, otherwise creates a temporary file."
   (interactive)
   ;; Cache app info asynchronously, don't block UI
   (emacs-input--get-app-info-async)
-  ;; Show frame immediately
-  (emacs-input--show-frame)
+  ;; Show frame immediately (with safety checks)
+  (emacs-input--show-frame-safe)
   ;; Get selection asynchronously after frame is shown
   (run-with-timer 0.1 nil #'emacs-input--get-selection-async))
 
