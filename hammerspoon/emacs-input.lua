@@ -1,5 +1,5 @@
 -- emacs-input.lua - Hammerspoon integration for emacs-input
--- Provides system integration for getting app info, selection, and pasting
+-- Provides system integration for getting app info and pasting
 
 local emacs_input = {}
 
@@ -40,33 +40,7 @@ function emacs_input.getAppInfo()
         math.floor(info.frame.h)))
 end
 
--- Get currently selected text
-function emacs_input.getSelection()
-    -- Store current clipboard
-    local originalClipboard = hs.pasteboard.getContents()
-    
-    -- Copy selection to clipboard
-    hs.eventtap.keyStroke({"cmd"}, "c")
-    
-    -- Small delay to ensure clipboard is updated
-    hs.timer.usleep(50000) -- 50ms
-    
-    local selection = hs.pasteboard.getContents() or ""
-    
-    -- Restore original clipboard if selection was empty or same
-    if selection == "" or selection == originalClipboard then
-        selection = ""
-    else
-        -- Restore original clipboard after getting selection
-        hs.timer.doAfter(0.1, function()
-            if originalClipboard then
-                hs.pasteboard.setContents(originalClipboard)
-            end
-        end)
-    end
-    
-    print(selection)
-end
+
 
 -- Paste content back to the original application
 function emacs_input.pasteContent(content)
@@ -95,7 +69,7 @@ end
 
 -- Trigger emacs-input
 function emacs_input.trigger()
-    -- Call emacsclient to trigger emacs-input with GUI client
+    -- Call emacsclient to trigger emacs-input
     local task = hs.task.new(config.emacsclient, function(exitCode, stdOut, stdErr)
         if exitCode ~= 0 then
             hs.alert.show("Failed to launch emacs-input: " .. (stdErr or "unknown error"))
