@@ -241,17 +241,25 @@ This may open FILE if specified, otherwise creates a memory buffer."
              (temp-file file)
              (params (emacs-input--command-params app-info temp-file)))
         (apply #'call-process "emacsclient" nil 0 nil params))
-    ;; For new sessions, use memory buffer mode directly
-    (let ((frame (emacs-input--get-frame-from-pool))
-          (buffer (emacs-input--create-memory-buffer)))
-      (with-selected-frame frame
-        (switch-to-buffer buffer)
-        (text-mode)
-        (emacs-input-mode 1)
-        (setq emacs-input--original-content "")
-        ;; Start async context loading in background (app info only)
-        (emacs-input--get-context-async)
-        (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort")))))
+    ;; Check if we're being called from terminal (emacsclient -e)
+    (if (and (not (display-graphic-p))
+             (not (frame-parameter nil 'client)))
+        ;; Terminal mode: use emacsclient with -c -F to create GUI client
+        (let* ((app-info (emacs-input--get-cached-app-info))
+               (temp-file (emacs-input--create-temp-file-fast))
+               (params (emacs-input--command-params app-info temp-file)))
+          (apply #'call-process "emacsclient" nil 0 nil params))
+      ;; GUI mode: use memory buffer mode directly
+      (let ((frame (emacs-input--get-frame-from-pool))
+            (buffer (emacs-input--create-memory-buffer)))
+        (with-selected-frame frame
+          (switch-to-buffer buffer)
+          (text-mode)
+          (emacs-input-mode 1)
+          (setq emacs-input--original-content "")
+          ;; Start async context loading in background (app info only)
+          (emacs-input--get-context-async)
+          (message "emacs-input ready - Press C-c C-c to finish, C-c C-k to abort"))))))
 
 ;;;###autoload
 (defun emacs-input-quick ()
